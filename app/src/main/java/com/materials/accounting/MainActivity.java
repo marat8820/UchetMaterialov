@@ -18,6 +18,8 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Collections;
 import java.util.Comparator;
 import java.io.OutputStream;
@@ -441,6 +443,7 @@ public class MainActivity extends Activity {
                     appendExcelRecords(receiptRows, material, "receipts", objectName);
                 }
             }
+            appendExcelTotals(receiptRows, materials, "receipts");
             addExcelEntry(zip, "xl/worksheets/sheet2.xml",
                 excelSheet(receiptRows.toString()));
 
@@ -456,6 +459,7 @@ public class MainActivity extends Activity {
                     appendExcelRecords(expenseRows, material, "expenses", objectName);
                 }
             }
+            appendExcelTotals(expenseRows, materials, "expenses");
             addExcelEntry(zip, "xl/worksheets/sheet3.xml",
                 excelSheet(expenseRows.toString()));
         } finally {
@@ -476,6 +480,50 @@ public class MainActivity extends Activity {
                 formatNumber(record.optDouble("quantity", 0)),
                 material.optString("unit", "шт."),
                 objectName
+            }, new boolean[]{false, false, true, false, false}));
+        }
+    }
+
+    // Итоги считаются отдельно для каждой единицы измерения.
+    private void appendExcelTotals(StringBuilder rows, JSONArray materials, String key) {
+        Map<String, Double> totals = new LinkedHashMap<>();
+
+        if (materials != null) {
+            for (int i = 0; i < materials.length(); i++) {
+                JSONObject material = materials.optJSONObject(i);
+                if (material == null) continue;
+
+                String unit = material.optString("unit", "шт.");
+                JSONArray records = material.optJSONArray(key);
+                if (records == null) continue;
+
+                for (int j = 0; j < records.length(); j++) {
+                    JSONObject record = records.optJSONObject(j);
+                    if (record == null) continue;
+                    double quantity = record.optDouble("quantity", 0);
+                    Double previous = totals.get(unit);
+                    totals.put(unit, (previous == null ? 0 : previous) + quantity);
+                }
+            }
+        }
+
+        rows.append(excelRow(new String[]{
+            "", "", "", "", ""
+        }, null));
+        rows.append(excelRow(new String[]{
+            "ИТОГО ПО ЕДИНИЦАМ ИЗМЕРЕНИЯ", "", "Количество", "Единица измерения", ""
+        }, null));
+
+        if (totals.isEmpty()) {
+            rows.append(excelRow(new String[]{
+                "Нет данных", "", "", "", ""
+            }, null));
+            return;
+        }
+
+        for (Map.Entry<String, Double> entry : totals.entrySet()) {
+            rows.append(excelRow(new String[]{
+                "Итого", "", formatNumber(entry.getValue()), entry.getKey(), ""
             }, new boolean[]{false, false, true, false, false}));
         }
     }
