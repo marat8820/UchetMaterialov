@@ -367,6 +367,65 @@ public class MainActivity extends Activity {
         dialog.show();
     }
 
+    private void editObject(int index) {
+        JSONObject item = objects.optJSONObject(index);
+        if (item == null) return;
+
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(25, 10, 25, 10);
+
+        EditText name = new EditText(this);
+        name.setSingleLine(true);
+        name.setHint("Название объекта");
+        name.setText(item.optString("name", ""));
+        form.addView(name);
+
+        EditText address = new EditText(this);
+        address.setHint("Адрес объекта");
+        address.setText(item.optString("address", ""));
+        form.addView(address);
+
+        EditText responsible = new EditText(this);
+        responsible.setHint("Ответственный");
+        responsible.setText(item.optString("responsible", ""));
+        form.addView(responsible);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("Редактирование объекта")
+            .setView(form)
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Сохранить", null)
+            .create();
+
+        dialog.setOnShowListener(v ->
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(btn -> {
+                    String newName = name.getText().toString().trim();
+                    if (newName.isEmpty()) {
+                        name.setError("Введите название объекта");
+                        return;
+                    }
+
+                    try {
+                        item.put("name", newName);
+                        item.put("address", address.getText().toString().trim());
+                        item.put("responsible", responsible.getText().toString().trim());
+                        saveObjects();
+                        dialog.dismiss();
+                        showObject(index);
+                        Toast.makeText(this, "Информация об объекте обновлена",
+                            Toast.LENGTH_SHORT).show();
+                    } catch (Exception e) {
+                        Toast.makeText(this, "Не удалось сохранить изменения",
+                            Toast.LENGTH_SHORT).show();
+                    }
+                })
+        );
+
+        dialog.show();
+    }
+
     private void showObject(int index) {
         JSONObject item = objects.optJSONObject(index);
         if (item == null) return;
@@ -396,6 +455,10 @@ public class MainActivity extends Activity {
         );
         responsible.setPadding(0, 0, 0, 20);
         root.addView(responsible);
+
+        Button editInfo = makeButton("✏️  РЕДАКТИРОВАТЬ ИНФОРМАЦИЮ ОБ ОБЪЕКТЕ");
+        root.addView(editInfo, buttonParams());
+        editInfo.setOnClickListener(v -> editObject(index));
 
         Button materialButton = makeButton("📦  МАТЕРИАЛЫ");
         root.addView(materialButton, buttonParams());
