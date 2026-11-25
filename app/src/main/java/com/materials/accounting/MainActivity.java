@@ -188,6 +188,10 @@ public class MainActivity extends Activity {
         root.addView(archiveButton, buttonParams());
         archiveButton.setOnClickListener(v -> showArchive());
 
+        Button summaryButton = makeButton("📊  СВОДНЫЙ ОТЧЁТ ПО ВСЕМ ОБЪЕКТАМ");
+        root.addView(summaryButton, buttonParams());
+        summaryButton.setOnClickListener(v -> showSummaryReportMenu());
+
         TextView listTitle = text("Список объектов", 18, white);
         listTitle.setPadding(0, 20, 0, 15);
         root.addView(listTitle);
@@ -624,6 +628,198 @@ public class MainActivity extends Activity {
 
 
 
+    private void showSummaryReportMenu() {
+        int activeCount = 0;
+        for (int i = 0; i < objects.length(); i++) {
+            JSONObject obj = objects.optJSONObject(i);
+            if (obj != null && !obj.optBoolean("archived", false)) activeCount++;
+        }
+        if (activeCount == 0) {
+            new AlertDialog.Builder(this).setMessage("Нет активных объектов для отчёта.")
+                .setPositiveButton("ОК", null).show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("Сводный отчёт по всем объектам")
+            .setItems(new String[]{"Сохранить в Excel", "Сохранить в PDF"}, (dialog, which) -> {
+                if (which == 0) createSummaryExcelReport();
+                else createSummaryPdfReport();
+            }).setNegativeButton("Отмена", null).show();
+    }
+
+    private void createSummaryExcelReport() {
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        intent.putExtra(Intent.EXTRA_TITLE, "Сводный_отчёт_по_объектам.xlsx");
+        startActivityForResult(intent, 503);
+    }
+
+    private void createSummaryPdfReport() {
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/pdf");
+        intent.putExtra(Intent.EXTRA_TITLE, "Сводный_отчёт_по_объектам.pdf");
+        startActivityForResult(intent, 504);
+    }
+
+    private void writeSummaryExcelReport(android.net.Uri uri) throws Exception {
+        String date = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(new Date());
+        StringBuilder balances = new StringBuilder();
+        StringBuilder receipts = new StringBuilder();
+        StringBuilder expenses = new StringBuilder();
+        balances.append(excelRow(new String[]{"СВОДНЫЙ ОТЧЁТ ПО ВСЕМ ОБЪЕКТАМ", "Дата формирования:", date}, null));
+        balances.append(excelRow(new String[]{"Объект", "Адрес", "Материал", "Единица измерения", "Остаток"}, null));
+        receipts.append(excelRow(new String[]{"СВОДНЫЕ ПОСТУПЛЕНИЯ", "Дата формирования:", date}, null));
+        receipts.append(excelRow(new String[]{"Дата", "Объект", "Материал", "Количество", "Единица измерения"}, null));
+        expenses.append(excelRow(new String[]{"СВОДНЫЕ РАСХОДЫ", "Дата формирования:", date}, null));
+        expenses.append(excelRow(new String[]{"Дата", "Объект", "Материал", "Количество", "Единица измерения"}, null));
+        Map<String, Double> balanceTotals = new LinkedHashMap<>();
+        Map<String, Double> receiptTotals = new LinkedHashMap<>();
+        Map<String, Double> expenseTotals = new LinkedHashMap<>();
+        for (int i = 0; i < objects.length(); i++) {
+            JSONObject obj = objects.optJSONObject(i);
+            if (obj == null || obj.optBoolean("archived", false)) continue;
+            String objectName = obj.optString("name", "");
+            String address = obj.optString("address", "");
+            JSONArray materials = obj.optJSONArray("materials");
+            if (materials == null) continue;
+            for (int j = 0; j < materials.length(); j++) {
+                JSONObject material = materials.optJSONObject(j);
+                if (material == null) continue;
+                String name = material.optString("name", "");
+                String unit = material.optString("unit", "шт.");
+                double balance = material.optDouble("quantity", 0);
+                balances.append(excelRow(new String[]{objectName, address, name, unit, formatNumber(balance)},
+                    new boolean[]{false, false, false, false, true}));
+                balanceTotals.put(unit, (balanceTotals.containsKey(unit) ? balanceTotals.get(unit) : 0.0) + balance);
+                appendSummaryExcelRecords(receipts, material, "receipts", objectName, receiptTotals);
+                appendSummaryExcelRecords(expenses, material, "expenses", objectName, expenseTotals);
+            }
+        }
+        balances.append(excelRow(new String[]{"", "", "ИТОГО ПО ЕДИНИЦАМ ИЗМЕРЕНИЯ", "", ""}, null));
+        for (Map.Entry<String, Double> e : balanceTotals.entrySet())
+            balances.append(excelRow(new String[]{"", "", "Итого", e.getKey(), formatNumber(e.getValue())},
+                new boolean[]{false, false, false, false, true}));
+        appendSummaryExcelTotals(receipts, receiptTotals);
+        appendSummaryExcelTotals(expenses, expenseTotals);
+
+        OutputStream output = getContentResolver().openOutputStream(uri);
+        if (output == null) throw new IOException("Не удалось открыть файл");
+        ZipOutputStream zip = new ZipOutputStream(output);
+        try {
+            addExcelEntry(zip, "[Content_Types].xml", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+                + "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>"
+                + "<Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/worksheets/sheet2.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/worksheets/sheet3.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/></Types>");
+            addExcelEntry(zip, "_rels/.rels", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>");
+            addExcelEntry(zip, "xl/workbook.xml", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"Остатки\" sheetId=\"1\" r:id=\"rId1\"/><sheet name=\"Поступления\" sheetId=\"2\" r:id=\"rId2\"/><sheet name=\"Расходы\" sheetId=\"3\" r:id=\"rId3\"/></sheets></workbook>");
+            addExcelEntry(zip, "xl/_rels/workbook.xml.rels", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/><Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet2.xml\"/><Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet3.xml\"/></Relationships>");
+            addExcelEntry(zip, "xl/worksheets/sheet1.xml", excelSheet(balances.toString()));
+            addExcelEntry(zip, "xl/worksheets/sheet2.xml", excelSheet(receipts.toString()));
+            addExcelEntry(zip, "xl/worksheets/sheet3.xml", excelSheet(expenses.toString()));
+        } finally { zip.close(); }
+    }
+
+    private void appendSummaryExcelRecords(StringBuilder rows, JSONObject material, String key,
+            String objectName, Map<String, Double> totals) {
+        JSONArray records = material.optJSONArray(key);
+        if (records == null) return;
+        String unit = material.optString("unit", "шт.");
+        for (int i = 0; i < records.length(); i++) {
+            JSONObject record = records.optJSONObject(i);
+            if (record == null) continue;
+            double quantity = record.optDouble("quantity", 0);
+            rows.append(excelRow(new String[]{record.optString("date", ""), objectName,
+                material.optString("name", ""), formatNumber(quantity), unit},
+                new boolean[]{false, false, false, true, false}));
+            totals.put(unit, (totals.containsKey(unit) ? totals.get(unit) : 0.0) + quantity);
+        }
+    }
+
+    private void appendSummaryExcelTotals(StringBuilder rows, Map<String, Double> totals) {
+        rows.append(excelRow(new String[]{"", "", "ИТОГО ПО ЕДИНИЦАМ ИЗМЕРЕНИЯ", "", ""}, null));
+        for (Map.Entry<String, Double> e : totals.entrySet())
+            rows.append(excelRow(new String[]{"", "", "Итого", formatNumber(e.getValue()), e.getKey()},
+                new boolean[]{false, false, false, true, false}));
+    }
+
+    private void writeSummaryPdfReport(android.net.Uri uri) throws Exception {
+        PdfDocument document = new PdfDocument();
+        try {
+            PdfPageWriter writer = new PdfPageWriter(document);
+            String date = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(new Date());
+            writer.line("СВОДНЫЙ ОТЧЁТ ПО ВСЕМ ОБЪЕКТАМ", 14, true);
+            writer.line("Дата формирования: " + date, 12, false);
+            Map<String, Double> balanceTotals = new LinkedHashMap<>();
+            Map<String, Double> receiptTotals = new LinkedHashMap<>();
+            Map<String, Double> expenseTotals = new LinkedHashMap<>();
+            writer.section("1. ОСТАТКИ МАТЕРИАЛОВ ПО ОБЪЕКТАМ");
+            boolean hasMaterials = false;
+            for (int i = 0; i < objects.length(); i++) {
+                JSONObject obj = objects.optJSONObject(i);
+                if (obj == null || obj.optBoolean("archived", false)) continue;
+                writer.line("Объект: " + obj.optString("name", ""), 12, true);
+                writer.line("Адрес: " + obj.optString("address", ""), 11, false);
+                JSONArray materials = obj.optJSONArray("materials");
+                if (materials != null) for (int j = 0; j < materials.length(); j++) {
+                    JSONObject material = materials.optJSONObject(j);
+                    if (material == null) continue;
+                    hasMaterials = true;
+                    String unit = material.optString("unit", "шт.");
+                    double q = material.optDouble("quantity", 0);
+                    writer.line("• " + material.optString("name", "") + " — " + formatNumber(q) + " " + unit, 11, false);
+                    balanceTotals.put(unit, (balanceTotals.containsKey(unit) ? balanceTotals.get(unit) : 0.0) + q);
+                }
+                writer.line("", 11, false);
+            }
+            if (!hasMaterials) writer.line("Материалы не добавлены.", 11, false);
+            writer.section("ИТОГО ОСТАТКИ ПО ЕДИНИЦАМ ИЗМЕРЕНИЯ");
+            for (Map.Entry<String, Double> e : balanceTotals.entrySet())
+                writer.line(e.getKey() + ": " + formatNumber(e.getValue()), 11, false);
+            writer.section("2. ПОСТУПЛЕНИЯ ПО ВСЕМ ОБЪЕКТАМ");
+            appendSummaryPdfRecords(writer, "receipts", receiptTotals);
+            writer.section("ИТОГО ПОСТУПЛЕНИЯ ПО ЕДИНИЦАМ ИЗМЕРЕНИЯ");
+            for (Map.Entry<String, Double> e : receiptTotals.entrySet()) writer.line(e.getKey() + ": " + formatNumber(e.getValue()), 11, false);
+            writer.section("3. РАСХОДЫ ПО ВСЕМ ОБЪЕКТАМ");
+            appendSummaryPdfRecords(writer, "expenses", expenseTotals);
+            writer.section("ИТОГО РАСХОДЫ ПО ЕДИНИЦАМ ИЗМЕРЕНИЯ");
+            for (Map.Entry<String, Double> e : expenseTotals.entrySet()) writer.line(e.getKey() + ": " + formatNumber(e.getValue()), 11, false);
+            writer.finish();
+            OutputStream output = getContentResolver().openOutputStream(uri);
+            if (output == null) throw new IOException("Не удалось открыть файл");
+            document.writeTo(output);
+            output.close();
+        } finally { document.close(); }
+    }
+
+    private void appendSummaryPdfRecords(PdfPageWriter writer, String key, Map<String, Double> totals) {
+        boolean found = false;
+        for (int i = 0; i < objects.length(); i++) {
+            JSONObject obj = objects.optJSONObject(i);
+            if (obj == null || obj.optBoolean("archived", false)) continue;
+            JSONArray materials = obj.optJSONArray("materials");
+            if (materials == null) continue;
+            for (int j = 0; j < materials.length(); j++) {
+                JSONObject material = materials.optJSONObject(j);
+                if (material == null) continue;
+                JSONArray records = material.optJSONArray(key);
+                if (records == null) continue;
+                for (int k = 0; k < records.length(); k++) {
+                    JSONObject record = records.optJSONObject(k);
+                    if (record == null) continue;
+                    found = true;
+                    String unit = material.optString("unit", "шт.");
+                    double q = record.optDouble("quantity", 0);
+                    writer.line(record.optString("date", "") + " | " + obj.optString("name", "")
+                        + " | " + material.optString("name", "") + " — " + formatNumber(q) + " " + unit, 10, false);
+                    totals.put(unit, (totals.containsKey(unit) ? totals.get(unit) : 0.0) + q);
+                }
+            }
+        }
+        if (!found) writer.line("Записей пока нет.", 11, false);
+    }
+
     private int pendingExcelObjectIndex = -1;
     private int pendingPdfObjectIndex = -1;
 
@@ -669,6 +865,23 @@ public class MainActivity extends Activity {
             }
         }
         if (requestCode == 502) pendingPdfObjectIndex = -1;
+
+        if (requestCode == 503 && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            try {
+                writeSummaryExcelReport(data.getData());
+                Toast.makeText(this, "Сводный отчёт Excel сохранён", Toast.LENGTH_LONG).show();
+            } catch (Exception e) {
+                Toast.makeText(this, "Ошибка сохранения отчёта: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        }
+        if (requestCode == 504 && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            try {
+                writeSummaryPdfReport(data.getData());
+                Toast.makeText(this, "Сводный отчёт PDF сохранён", Toast.LENGTH_LONG).show();
+            } catch (Exception e) {
+                Toast.makeText(this, "Ошибка сохранения PDF: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        }
     }
 
     private void createPdfReport(int objectIndex) {
