@@ -476,15 +476,15 @@ public class MainActivity extends Activity {
                 String normalized = value.replace(",", ".");
                 try {
                     double number = Double.parseDouble(normalized);
-                    row.append("<c t=\\\"n\\\"><v>")
+                    row.append("<c t=\"n\"><v>")
                         .append(number).append("</v></c>");
                 } catch (Exception e) {
-                    row.append("<c t=\\\"inlineStr\\\"><is><t>")
+                    row.append("<c t=\"inlineStr\"><is><t>")
                         .append(xmlEscape(value))
                         .append("</t></is></c>");
                 }
             } else {
-                row.append("<c t=\\\"inlineStr\\\"><is><t>")
+                row.append("<c t=\"inlineStr\"><is><t>")
                     .append(xmlEscape(value))
                     .append("</t></is></c>");
             }
