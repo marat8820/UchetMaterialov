@@ -361,6 +361,32 @@ public class MainActivity extends Activity {
         if (requestCode == 501) pendingExcelObjectIndex = -1;
     }
 
+    // Шапка с информацией об объекте для каждого листа Excel.
+    private String excelHeaderRows(JSONObject item) {
+        String date = new SimpleDateFormat(
+            "dd.MM.yyyy HH:mm", Locale.getDefault()
+        ).format(new Date());
+
+        StringBuilder header = new StringBuilder();
+        header.append(excelRow(new String[]{
+            "ОТЧЁТ ПО УЧЁТУ МАТЕРИАЛОВ"
+        }, null));
+        header.append(excelRow(new String[]{
+            "Объект:", item.optString("name", "")
+        }, null));
+        header.append(excelRow(new String[]{
+            "Адрес:", item.optString("address", "")
+        }, null));
+        header.append(excelRow(new String[]{
+            "Ответственный:", item.optString("responsible", "")
+        }, null));
+        header.append(excelRow(new String[]{
+            "Дата формирования:", date
+        }, null));
+        header.append(excelRow(new String[]{""}, null));
+        return header.toString();
+    }
+
     private void writeExcelReport(android.net.Uri uri, int objectIndex)
             throws Exception {
         JSONObject item = objects.optJSONObject(objectIndex);
@@ -411,6 +437,7 @@ public class MainActivity extends Activity {
 
             // Лист 1. Текущий остаток материалов на выбранном объекте.
             StringBuilder balanceRows = new StringBuilder();
+            balanceRows.append(excelHeaderRows(item));
             balanceRows.append(excelRow(new String[]{
                 "№", "Материал", "Единица измерения", "Остаток"
             }, null));
@@ -433,6 +460,7 @@ public class MainActivity extends Activity {
 
             // Лист 2. Только поступления. Перемещения сюда не включаются.
             StringBuilder receiptRows = new StringBuilder();
+            receiptRows.append(excelHeaderRows(item));
             receiptRows.append(excelRow(new String[]{
                 "Дата", "Материал", "Количество", "Единица измерения", "Объект"
             }, null));
@@ -449,6 +477,7 @@ public class MainActivity extends Activity {
 
             // Лист 3. Только расходы. Перемещения сюда не включаются.
             StringBuilder expenseRows = new StringBuilder();
+            expenseRows.append(excelHeaderRows(item));
             expenseRows.append(excelRow(new String[]{
                 "Дата", "Материал", "Количество", "Единица измерения", "Объект"
             }, null));
