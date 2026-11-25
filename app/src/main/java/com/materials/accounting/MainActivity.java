@@ -299,9 +299,7 @@ public class MainActivity extends Activity {
         responsible.setPadding(0, 0, 0, 20);
         root.addView(responsible);
 
-        Button materialButton = makeButton(
-            "📦  МАТЕРИАЛЫ"
-        );
+        Button materialButton = makeButton("📦  МАТЕРИАЛЫ");
         root.addView(materialButton, buttonParams());
         materialButton.setOnClickListener(
             v -> showMaterials(index)
@@ -496,6 +494,7 @@ public class MainActivity extends Activity {
             InputType.TYPE_CLASS_NUMBER |
             InputType.TYPE_NUMBER_FLAG_DECIMAL
         );
+
         if (old != null) {
             quantity.setText(
                 formatNumber(old.optDouble("quantity", 0))
@@ -503,6 +502,7 @@ public class MainActivity extends Activity {
         } else {
             quantity.setText("0");
         }
+
         form.addView(quantity);
 
         AlertDialog dialog = new AlertDialog.Builder(this)
@@ -537,7 +537,13 @@ public class MainActivity extends Activity {
                     return;
                 }
 
-                JSONObject material = old;
+                // Исправление ошибки Java:
+                // сохраняем ссылки в final-переменные
+                final JSONObject existingMaterial = old;
+                final JSONArray savedMaterials = materials;
+
+                JSONObject material = existingMaterial;
+
                 if (material == null) {
                     material = new JSONObject();
                 }
@@ -548,8 +554,8 @@ public class MainActivity extends Activity {
                         unitSpinner.getSelectedItem().toString());
                     material.put("quantity", amount);
 
-                    if (old == null) {
-                        materials.put(material);
+                    if (existingMaterial == null) {
+                        savedMaterials.put(material);
                     }
                 } catch (Exception e) {
                     return;
