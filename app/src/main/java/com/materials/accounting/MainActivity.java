@@ -145,8 +145,40 @@ public class MainActivity extends Activity {
         }
 
         TextView count = text("Активных объектов: " + active, 16, gold);
-        count.setPadding(0, 12, 0, 20);
+        count.setPadding(0, 12, 0, 12);
         root.addView(count);
+
+        EditText searchInput = new EditText(this);
+        searchInput.setSingleLine(true);
+        searchInput.setTextSize(16);
+        searchInput.setTextColor(Color.BLACK);
+        searchInput.setHintTextColor(Color.DKGRAY);
+        searchInput.setHint("🔍 Поиск: материал, объект, ответственный");
+        searchInput.setPadding(16, 10, 16, 10);
+        searchInput.setBackground(shape(Color.WHITE, 12));
+        LinearLayout.LayoutParams searchParams =
+            new LinearLayout.LayoutParams(-1, -2);
+        searchParams.bottomMargin = 10;
+        root.addView(searchInput, searchParams);
+
+        LinearLayout searchResults = new LinearLayout(this);
+        searchResults.setOrientation(LinearLayout.VERTICAL);
+        root.addView(searchResults);
+
+        searchInput.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count,
+                    int after) { }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before,
+                    int count) {
+                showSearchResults(s.toString(), searchResults);
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable editable) { }
+        });
 
         Button add = makeButton("＋ ДОБАВИТЬ ОБЪЕКТ");
         root.addView(add, buttonParams());
@@ -202,6 +234,81 @@ public class MainActivity extends Activity {
 
             card.setOnClickListener(v -> showObject(index));
         }
+    }
+
+    private void showSearchResults(String query, LinearLayout results) {
+        results.removeAllViews();
+        String needle = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        if (needle.isEmpty()) return;
+
+        int found = 0;
+        for (int i = 0; i < objects.length(); i++) {
+            JSONObject item = objects.optJSONObject(i);
+            if (item == null) continue;
+
+            String objectName = item.optString("name", "");
+            String address = item.optString("address", "");
+            String responsible = item.optString("responsible", "");
+            boolean archived = item.optBoolean("archived", false);
+
+            boolean objectMatch =
+                objectName.toLowerCase(Locale.ROOT).contains(needle)
+                || address.toLowerCase(Locale.ROOT).contains(needle)
+                || responsible.toLowerCase(Locale.ROOT).contains(needle);
+
+            if (objectMatch) {
+                String label = "ОБЪЕКТ: " + objectName
+                    + (archived ? " (архив)" : "")
+                    + "\nАдрес: " + address
+                    + "\nОтветственный: " + responsible;
+                addSearchResult(results, label, i, false);
+                found++;
+            }
+
+            JSONArray materials = item.optJSONArray("materials");
+            if (materials == null) continue;
+
+            for (int j = 0; j < materials.length(); j++) {
+                JSONObject material = materials.optJSONObject(j);
+                if (material == null) continue;
+                String materialName = material.optString("name", "");
+                if (materialName.toLowerCase(Locale.ROOT).contains(needle)) {
+                    String label = "МАТЕРИАЛ: " + materialName
+                        + "\nОбъект: " + objectName
+                        + (archived ? " (архив)" : "");
+                    addSearchResult(results, label, i, true);
+                    found++;
+                }
+            }
+        }
+
+        if (found == 0) {
+            TextView empty = text("Ничего не найдено", 15, white);
+            empty.setPadding(8, 12, 8, 16);
+            results.addView(empty);
+        } else {
+            TextView total = text("Найдено: " + found, 14, gold);
+            total.setPadding(4, 4, 4, 10);
+            results.addView(total, 0);
+        }
+    }
+
+    private void addSearchResult(LinearLayout results, String label,
+            int objectIndex, boolean openMaterials) {
+        TextView result = text(label, 15, white);
+        result.setPadding(16, 14, 16, 14);
+        result.setBackground(shape(darkGreen, 12));
+        LinearLayout.LayoutParams params =
+            new LinearLayout.LayoutParams(-1, -2);
+        params.bottomMargin = 8;
+        results.addView(result, params);
+        result.setOnClickListener(v -> {
+            if (openMaterials) {
+                showMaterials(objectIndex);
+            } else {
+                showObject(objectIndex);
+            }
+        });
     }
 
     private void addObject() {
