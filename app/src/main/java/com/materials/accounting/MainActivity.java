@@ -611,9 +611,46 @@ public class MainActivity extends Activity {
             }
         }
 
+        // Строка отчёта: весь текст обычным шрифтом.
+        void mixedLine(String before, String materialName, String after, float size) {
+            String value = ((before == null ? "" : before) + " "
+                + (materialName == null ? "" : materialName) + " "
+                + (after == null ? "" : after)).trim();
+            line(value, size, false);
+        }
+
+        private void addWords(ArrayList<String> words, ArrayList<Boolean> boldWords,
+                String value, boolean bold) {
+            if (value == null || value.trim().isEmpty()) return;
+            for (String word : value.trim().split("\\s+")) {
+                words.add(word);
+                boldWords.add(bold);
+            }
+        }
+
+        private void drawMixedWords(ArrayList<String> words,
+                ArrayList<Boolean> boldWords, float size) {
+            float x = 42;
+            for (int i = 0; i < words.size(); i++) {
+                boolean bold = boldWords.get(i);
+                paint.setColor(Color.BLACK);
+                paint.setTextSize(size);
+                paint.setTypeface(bold
+                    ? Typeface.create("sans-serif", Typeface.BOLD)
+                    : Typeface.create("sans-serif", Typeface.NORMAL));
+                if (i > 0) {
+                    canvas.drawText(" ", x, y, paint);
+                    x += paint.measureText(" ");
+                }
+                String word = words.get(i);
+                canvas.drawText(word, x, y, paint);
+                x += paint.measureText(word);
+            }
+        }
+
         void section(String value) {
             y += 8;
-            line(value, 15, true);
+            line(value, 12, true);
             y += 3;
         }
     }
@@ -631,24 +668,23 @@ public class MainActivity extends Activity {
             String date = new SimpleDateFormat(
                 "dd.MM.yyyy HH:mm", Locale.getDefault()).format(new Date());
 
-            writer.line("ОТЧЁТ ПО УЧЁТУ МАТЕРИАЛОВ", 20, true);
-            writer.line("Объект: " + item.optString("name", ""), 12, true);
-            writer.line("Адрес: " + item.optString("address", ""), 11, false);
-            writer.line("Ответственный: " + item.optString("responsible", ""), 11, false);
-            writer.line("Дата формирования: " + date, 11, false);
+            writer.line("ОТЧЁТ ПО УЧЁТУ МАТЕРИАЛОВ", 14, true);
+            writer.line("Объект: " + item.optString("name", ""), 12, false);
+            writer.line("Адрес: " + item.optString("address", ""), 12, false);
+            writer.line("Ответственный: " + item.optString("responsible", ""), 12, false);
+            writer.line("Дата формирования: " + date, 12, false);
 
             writer.section("1. ТЕКУЩЕЕ СОСТОЯНИЕ МАТЕРИАЛОВ");
             if (materials == null || materials.length() == 0) {
-                writer.line("Материалы не добавлены.", 11, false);
+                writer.line("Материалы не добавлены.", 12, false);
             } else {
                 int number = 1;
                 for (int i = 0; i < materials.length(); i++) {
                     JSONObject material = materials.optJSONObject(i);
                     if (material == null) continue;
-                    writer.line(number++ + ". " + material.optString("name", "")
-                        + " — остаток: "
-                        + formatNumber(material.optDouble("quantity", 0)) + " "
-                        + material.optString("unit", "шт."), 11, false);
+                    writer.mixedLine(number++ + ".", material.optString("name", ""),
+                        "— остаток: " + formatNumber(material.optDouble("quantity", 0))
+                        + " " + material.optString("unit", "шт."), 14);
                 }
             }
 
@@ -672,18 +708,16 @@ public class MainActivity extends Activity {
                         hasTransfers = true;
                         String direction = "OUT".equals(
                             record.optString("direction", ""))
-                            ? "Передано на объект: " : "Получено с объекта: ";
-                        writer.line(record.optString("date", "")
-                            + " — " + material.optString("name", "")
-                            + ", " + formatNumber(record.optDouble("quantity", 0))
+                            ? ". Передано на объект: " : ". Получено с объекта: ";
+                        writer.mixedLine(record.optString("date", "") + " —",
+                            material.optString("name", ""),
+                            ", " + formatNumber(record.optDouble("quantity", 0))
                             + " " + material.optString("unit", "шт.")
-                            + ". " + direction + record.optString("otherObject", ""),
-                            10, false);
+                            + direction + record.optString("otherObject", ""), 12);
                     }
                 }
             }
-            if (!hasTransfers) writer.line("Перемещений пока нет.", 11, false);
-
+            if (!hasTransfers) writer.line("Перемещений пока нет.", 12, false);
             writer.finish();
             output = getContentResolver().openOutputStream(uri);
             if (output == null) throw new IOException("Не удалось открыть файл");
@@ -710,14 +744,14 @@ public class MainActivity extends Activity {
                     JSONObject record = records.optJSONObject(j);
                     if (record == null) continue;
                     found = true;
-                    writer.line(record.optString("date", "")
-                        + " — " + material.optString("name", "")
-                        + ": " + formatNumber(record.optDouble("quantity", 0))
-                        + " " + material.optString("unit", "шт."), 10, false);
+                    writer.mixedLine(record.optString("date", "") + " —",
+                        material.optString("name", ""),
+                        ": " + formatNumber(record.optDouble("quantity", 0))
+                        + " " + material.optString("unit", "шт."), 12);
                 }
             }
         }
-        if (!found) writer.line(emptyMessage, 11, false);
+        if (!found) writer.line(emptyMessage, 12, false);
     }
 
     private void appendExcelRecords(StringBuilder rows, JSONObject material,
