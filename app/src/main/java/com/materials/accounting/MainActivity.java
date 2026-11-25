@@ -316,6 +316,9 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) { }
         }
 
+        // Сохраняем окончательную ссылку для обработчиков кнопок
+        final JSONArray savedMaterials = materials;
+
         prepareScreen("📦  МАТЕРИАЛЫ");
 
         TextView objectName = text(item.optString("name"), 18, gold);
@@ -326,14 +329,14 @@ public class MainActivity extends Activity {
         root.addView(add, buttonParams());
         add.setOnClickListener(v -> addMaterial(objectIndex, -1));
 
-        if (materials.length() == 0) {
+        if (savedMaterials.length() == 0) {
             TextView empty = text("Пока материалов нет", 16, white);
             empty.setPadding(0, 20, 0, 20);
             root.addView(empty);
         }
 
-        for (int i = 0; i < materials.length(); i++) {
-            JSONObject material = materials.optJSONObject(i);
+        for (int i = 0; i < savedMaterials.length(); i++) {
+            JSONObject material = savedMaterials.optJSONObject(i);
             if (material == null) continue;
 
             final int materialIndex = i;
@@ -374,9 +377,9 @@ public class MainActivity extends Activity {
                     .setNegativeButton("Отмена", null)
                     .setPositiveButton("Удалить", (d, w) -> {
                         JSONArray updated = new JSONArray();
-                        for (int j = 0; j < materials.length(); j++) {
+                        for (int j = 0; j < savedMaterials.length(); j++) {
                             if (j != materialIndex) {
-                                JSONObject keep = materials.optJSONObject(j);
+                                JSONObject keep = savedMaterials.optJSONObject(j);
                                 if (keep != null) updated.put(keep);
                             }
                         }
