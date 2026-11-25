@@ -20,6 +20,10 @@ import java.util.Locale;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.io.OutputStream;
+import java.io.IOException;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 public class MainActivity extends Activity {
 
@@ -293,6 +297,10 @@ public class MainActivity extends Activity {
         root.addView(transfer, buttonParams());
         transfer.setOnClickListener(v -> showTransfer(index));
 
+        Button excel = makeButton("📊  СОХРАНИТЬ ОТЧЁТ EXCEL");
+        root.addView(excel, buttonParams());
+        excel.setOnClickListener(v -> createExcelReport(index));
+
         Button back = makeButton("← НАЗАД К ОБЪЕКТАМ");
         root.addView(back, buttonParams());
         back.setOnClickListener(v -> showHome());
@@ -315,6 +323,188 @@ public class MainActivity extends Activity {
         );
     }
 
+
+
+    private void createExcelReport(int objectIndex) {
+        JSONObject item = objects.optJSONObject(objectIndex);
+        if (item == null) return;
+
+        String fileName = item.optString("name", "Объект")
+            .replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+        if (fileName.isEmpty()) fileName = "Объект";
+
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        intent.putExtra(Intent.EXTRA_TITLE, "Отчёт_" + fileName + ".xlsx");
+        startActivityForResult(intent, 501);
+        pendingExcelObjectIndex = objectIndex;
+    }
+
+    private int pendingExcelObjectIndex = -1;
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 501 && resultCode == RESULT_OK && data != null
+                && data.getData() != null) {
+            try {
+                writeExcelReport(data.getData(), pendingExcelObjectIndex);
+                Toast.makeText(this, "Отчёт Excel сохранён", Toast.LENGTH_LONG).show();
+            } catch (Exception e) {
+                Toast.makeText(this, "Ошибка сохранения отчёта: " + e.getMessage(),
+                    Toast.LENGTH_LONG).show();
+            }
+        }
+        if (requestCode == 501) pendingExcelObjectIndex = -1;
+    }
+
+    private void writeExcelReport(android.net.Uri uri, int objectIndex)
+            throws Exception {
+        JSONObject item = objects.optJSONObject(objectIndex);
+        if (item == null) throw new IOException("Объект не найден");
+
+        OutputStream output = getContentResolver().openOutputStream(uri);
+        if (output == null) throw new IOException("Не удалось открыть файл");
+
+        ZipOutputStream zip = new ZipOutputStream(output);
+        try {
+            addExcelEntry(zip, "[Content_Types].xml",
+                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+                + "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
+                + "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+                + "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>"
+                + "<Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>"
+                + "<Override PartName=\"/xl/worksheets/sheet2.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>"
+                + "</Types>");
+            addExcelEntry(zip, "_rels/.rels",
+                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+                + "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>"
+                + "</Relationships>");
+            addExcelEntry(zip, "xl/workbook.xml",
+                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                + "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" "
+                + "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
+                + "<sheets><sheet name=\"Остатки\" sheetId=\"1\" r:id=\"rId1\"/>"
+                + "<sheet name=\"История\" sheetId=\"2\" r:id=\"rId2\"/></sheets></workbook>");
+            addExcelEntry(zip, "xl/_rels/workbook.xml.rels",
+                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+                + "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/>"
+                + "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet2.xml\"/>"
+                + "</Relationships>");
+
+            StringBuilder balances = new StringBuilder();
+            balances.append(excelRow(new String[]{"Материал", "Единица", "Остаток"}, null));
+            JSONArray materials = item.optJSONArray("materials");
+            if (materials != null) {
+                for (int i = 0; i < materials.length(); i++) {
+                    JSONObject material = materials.optJSONObject(i);
+                    if (material == null) continue;
+                    balances.append(excelRow(
+                        new String[]{material.optString("name"),
+                            material.optString("unit", "шт."),
+                            formatNumber(material.optDouble("quantity", 0))},
+                        new boolean[]{false, false, true}));
+                }
+            }
+            addExcelEntry(zip, "xl/worksheets/sheet1.xml",
+                excelSheet(balances.toString()));
+
+            StringBuilder historyRows = new StringBuilder();
+            historyRows.append(excelRow(new String[]{
+                "Дата", "Операция", "Материал", "Количество", "Единица", "Объект"
+            }, null));
+
+            if (materials != null) {
+                for (int i = 0; i < materials.length(); i++) {
+                    JSONObject material = materials.optJSONObject(i);
+                    if (material == null) continue;
+                    appendExcelHistory(historyRows, material, "receipts",
+                        "ПОСТУПЛЕНИЕ", "");
+                    appendExcelHistory(historyRows, material, "expenses",
+                        "РАСХОД", "");
+                    appendExcelHistory(historyRows, material, "transfers",
+                        "ПЕРЕМЕЩЕНИЕ", "");
+                }
+            }
+            addExcelEntry(zip, "xl/worksheets/sheet2.xml",
+                excelSheet(historyRows.toString()));
+        } finally {
+            zip.close();
+        }
+    }
+
+    private void appendExcelHistory(StringBuilder rows, JSONObject material,
+            String key, String operation, String ignored) {
+        JSONArray records = material.optJSONArray(key);
+        if (records == null) return;
+        for (int i = 0; i < records.length(); i++) {
+            JSONObject record = records.optJSONObject(i);
+            if (record == null) continue;
+            String type = operation;
+            String other = "";
+            String amount = formatNumber(record.optDouble("quantity", 0));
+            if ("transfers".equals(key)) {
+                boolean outgoing = "OUT".equals(record.optString("direction"));
+                type = outgoing ? "ПЕРЕМЕЩЕНИЕ →" : "ПЕРЕМЕЩЕНИЕ ←";
+                other = record.optString("otherObject", "");
+                if (outgoing) amount = "-" + amount;
+                else amount = "+" + amount;
+            }
+            rows.append(excelRow(new String[]{
+                record.optString("date", ""), type, material.optString("name"),
+                amount, material.optString("unit", "шт."), other
+            }, new boolean[]{false, false, false, true, false, false}));
+        }
+    }
+
+    private String excelSheet(String rows) {
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+            + "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
+            + "<sheetData>" + rows + "</sheetData></worksheet>";
+    }
+
+    private String excelRow(String[] values, boolean[] numeric) {
+        StringBuilder row = new StringBuilder("<row>");
+        for (int i = 0; i < values.length; i++) {
+            String value = values[i] == null ? "" : values[i];
+            boolean isNumeric = numeric != null && i < numeric.length && numeric[i];
+            if (isNumeric) {
+                String normalized = value.replace(",", ".");
+                try {
+                    double number = Double.parseDouble(normalized);
+                    row.append("<c t=\\\"n\\\"><v>")
+                        .append(number).append("</v></c>");
+                } catch (Exception e) {
+                    row.append("<c t=\\\"inlineStr\\\"><is><t>")
+                        .append(xmlEscape(value))
+                        .append("</t></is></c>");
+                }
+            } else {
+                row.append("<c t=\\\"inlineStr\\\"><is><t>")
+                    .append(xmlEscape(value))
+                    .append("</t></is></c>");
+            }
+        }
+        row.append("</row>");
+        return row.toString();
+    }
+
+    private String xmlEscape(String value) {
+        return value.replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace("\"", "&quot;")
+            .replace("'", "&apos;");
+    }
+
+    private void addExcelEntry(ZipOutputStream zip, String name, String content)
+            throws IOException {
+        zip.putNextEntry(new ZipEntry(name));
+        zip.write(content.getBytes("UTF-8"));
+        zip.closeEntry();
+    }
 
     private void showHistory(int objectIndex) {
         JSONObject item = objects.optJSONObject(objectIndex);
