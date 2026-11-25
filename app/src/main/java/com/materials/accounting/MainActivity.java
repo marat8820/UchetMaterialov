@@ -379,6 +379,28 @@ public class MainActivity extends Activity {
                     })
                     .show()
             );
+
+            Button delete = makeButton("🗑  УДАЛИТЬ ИЗ АРХИВА");
+            card.addView(delete, buttonParams());
+            delete.setOnClickListener(v ->
+                new AlertDialog.Builder(this)
+                    .setTitle("Удалить объект из архива навсегда?")
+                    .setMessage("Объект, материалы и вся история операций будут удалены без возможности восстановления. Активные объекты это не затронет.")
+                    .setNegativeButton("Отмена", null)
+                    .setPositiveButton("Удалить навсегда", (d, w) -> {
+                        JSONArray updatedObjects = new JSONArray();
+                        for (int j = 0; j < objects.length(); j++) {
+                            if (j == index) continue;
+                            JSONObject keep = objects.optJSONObject(j);
+                            if (keep != null) updatedObjects.put(keep);
+                        }
+                        objects = updatedObjects;
+                        saveObjects();
+                        showArchive();
+                        Toast.makeText(this, "Объект удалён из архива", Toast.LENGTH_SHORT).show();
+                    })
+                    .show()
+            );
         }
 
         if (archivedCount == 0) {
