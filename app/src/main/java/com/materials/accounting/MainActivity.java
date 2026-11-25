@@ -4,6 +4,9 @@ import android.app.*;
 import android.os.Bundle;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.pdf.PdfDocument;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.drawable.GradientDrawable;
 import android.content.*;
 import android.text.InputType;
@@ -303,6 +306,10 @@ public class MainActivity extends Activity {
         root.addView(excel, buttonParams());
         excel.setOnClickListener(v -> createExcelReport(index));
 
+        Button pdf = makeButton("📄  СОХРАНИТЬ ОТЧЁТ PDF");
+        root.addView(pdf, buttonParams());
+        pdf.setOnClickListener(v -> createPdfReport(index));
+
         Button back = makeButton("← НАЗАД К ОБЪЕКТАМ");
         root.addView(back, buttonParams());
         back.setOnClickListener(v -> showHome());
@@ -328,6 +335,7 @@ public class MainActivity extends Activity {
 
 
     private int pendingExcelObjectIndex = -1;
+    private int pendingPdfObjectIndex = -1;
 
     private void createExcelReport(int objectIndex) {
         JSONObject item = objects.optJSONObject(objectIndex);
@@ -359,6 +367,34 @@ public class MainActivity extends Activity {
             }
         }
         if (requestCode == 501) pendingExcelObjectIndex = -1;
+
+        if (requestCode == 502 && resultCode == RESULT_OK && data != null
+                && data.getData() != null) {
+            try {
+                writePdfReport(data.getData(), pendingPdfObjectIndex);
+                Toast.makeText(this, "Отчёт PDF сохранён", Toast.LENGTH_LONG).show();
+            } catch (Exception e) {
+                Toast.makeText(this, "Ошибка сохранения PDF: " + e.getMessage(),
+                    Toast.LENGTH_LONG).show();
+            }
+        }
+        if (requestCode == 502) pendingPdfObjectIndex = -1;
+    }
+
+    private void createPdfReport(int objectIndex) {
+        JSONObject item = objects.optJSONObject(objectIndex);
+        if (item == null) return;
+
+        String fileName = item.optString("name", "Объект")
+            .replaceAll("[\\\\/:*?\\\"<>|]", "_").trim();
+        if (fileName.isEmpty()) fileName = "Объект";
+
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/pdf");
+        intent.putExtra(Intent.EXTRA_TITLE, "Отчёт_" + fileName + ".pdf");
+        pendingPdfObjectIndex = objectIndex;
+        startActivityForResult(intent, 502);
     }
 
     // Шапка с информацией об объекте для каждого листа Excel.
@@ -494,6 +530,194 @@ public class MainActivity extends Activity {
         } finally {
             zip.close();
         }
+    }
+
+
+    // Постраничная запись PDF-документа формата A4.
+    private class PdfPageWriter {
+        final PdfDocument document;
+        PdfDocument.Page page;
+        Canvas canvas;
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        float y = 48;
+        int pageNumber = 0;
+
+        PdfPageWriter(PdfDocument document) {
+            this.document = document;
+            startPage();
+        }
+
+        private void startPage() {
+            PdfDocument.PageInfo info = new PdfDocument.PageInfo.Builder(
+                595, 842, ++pageNumber).create();
+            page = document.startPage(info);
+            canvas = page.getCanvas();
+            y = 48;
+        }
+
+        void finish() {
+            if (page != null) {
+                document.finishPage(page);
+                page = null;
+            }
+        }
+
+        void line(String value, float size, boolean bold) {
+            if (y > 790) {
+                finish();
+                startPage();
+            }
+            paint.setColor(Color.BLACK);
+            paint.setTextSize(size);
+            paint.setTypeface(bold
+                ? Typeface.create("sans-serif", Typeface.BOLD)
+                : Typeface.create("sans-serif", Typeface.NORMAL));
+
+            String textValue = value == null ? "" : value;
+            if (textValue.isEmpty()) {
+                y += 10;
+                return;
+            }
+
+            float maxWidth = 510;
+            StringBuilder current = new StringBuilder();
+            String[] words = textValue.split("\\s+");
+            for (String word : words) {
+                String candidate = current.length() == 0
+                    ? word : current + " " + word;
+                if (paint.measureText(candidate) > maxWidth
+                        && current.length() > 0) {
+                    canvas.drawText(current.toString(), 42, y, paint);
+                    y += size + 7;
+                    current.setLength(0);
+                    current.append(word);
+                    if (y > 790) {
+                        finish();
+                        startPage();
+                        paint.setColor(Color.BLACK);
+                        paint.setTextSize(size);
+                        paint.setTypeface(bold
+                            ? Typeface.create("sans-serif", Typeface.BOLD)
+                            : Typeface.create("sans-serif", Typeface.NORMAL));
+                    }
+                } else {
+                    if (current.length() > 0) current.append(' ');
+                    current.append(word);
+                }
+            }
+            if (current.length() > 0) {
+                canvas.drawText(current.toString(), 42, y, paint);
+                y += size + 7;
+            }
+        }
+
+        void section(String value) {
+            y += 8;
+            line(value, 15, true);
+            y += 3;
+        }
+    }
+
+    private void writePdfReport(android.net.Uri uri, int objectIndex)
+            throws Exception {
+        JSONObject item = objects.optJSONObject(objectIndex);
+        if (item == null) throw new IOException("Объект не найден");
+
+        JSONArray materials = item.optJSONArray("materials");
+        PdfDocument document = new PdfDocument();
+        OutputStream output = null;
+        try {
+            PdfPageWriter writer = new PdfPageWriter(document);
+            String date = new SimpleDateFormat(
+                "dd.MM.yyyy HH:mm", Locale.getDefault()).format(new Date());
+
+            writer.line("ОТЧЁТ ПО УЧЁТУ МАТЕРИАЛОВ", 20, true);
+            writer.line("Объект: " + item.optString("name", ""), 12, true);
+            writer.line("Адрес: " + item.optString("address", ""), 11, false);
+            writer.line("Ответственный: " + item.optString("responsible", ""), 11, false);
+            writer.line("Дата формирования: " + date, 11, false);
+
+            writer.section("1. ТЕКУЩЕЕ СОСТОЯНИЕ МАТЕРИАЛОВ");
+            if (materials == null || materials.length() == 0) {
+                writer.line("Материалы не добавлены.", 11, false);
+            } else {
+                int number = 1;
+                for (int i = 0; i < materials.length(); i++) {
+                    JSONObject material = materials.optJSONObject(i);
+                    if (material == null) continue;
+                    writer.line(number++ + ". " + material.optString("name", "")
+                        + " — остаток: "
+                        + formatNumber(material.optDouble("quantity", 0)) + " "
+                        + material.optString("unit", "шт."), 11, false);
+                }
+            }
+
+            writer.section("2. ПОСТУПЛЕНИЯ");
+            appendPdfRecords(writer, materials, "receipts", "Поступлений пока нет.");
+
+            writer.section("3. РАСХОДЫ");
+            appendPdfRecords(writer, materials, "expenses", "Расходов пока нет.");
+
+            writer.section("4. ПЕРЕМЕЩЕНИЯ МЕЖДУ ОБЪЕКТАМИ");
+            boolean hasTransfers = false;
+            if (materials != null) {
+                for (int i = 0; i < materials.length(); i++) {
+                    JSONObject material = materials.optJSONObject(i);
+                    if (material == null) continue;
+                    JSONArray records = material.optJSONArray("transfers");
+                    if (records == null) continue;
+                    for (int j = 0; j < records.length(); j++) {
+                        JSONObject record = records.optJSONObject(j);
+                        if (record == null) continue;
+                        hasTransfers = true;
+                        String direction = "OUT".equals(
+                            record.optString("direction", ""))
+                            ? "Передано на объект: " : "Получено с объекта: ";
+                        writer.line(record.optString("date", "")
+                            + " — " + material.optString("name", "")
+                            + ", " + formatNumber(record.optDouble("quantity", 0))
+                            + " " + material.optString("unit", "шт.")
+                            + ". " + direction + record.optString("otherObject", ""),
+                            10, false);
+                    }
+                }
+            }
+            if (!hasTransfers) writer.line("Перемещений пока нет.", 11, false);
+
+            writer.finish();
+            output = getContentResolver().openOutputStream(uri);
+            if (output == null) throw new IOException("Не удалось открыть файл");
+            document.writeTo(output);
+            output.flush();
+        } finally {
+            if (output != null) {
+                try { output.close(); } catch (Exception ignored) { }
+            }
+            document.close();
+        }
+    }
+
+    private void appendPdfRecords(PdfPageWriter writer, JSONArray materials,
+            String key, String emptyMessage) {
+        boolean found = false;
+        if (materials != null) {
+            for (int i = 0; i < materials.length(); i++) {
+                JSONObject material = materials.optJSONObject(i);
+                if (material == null) continue;
+                JSONArray records = material.optJSONArray(key);
+                if (records == null) continue;
+                for (int j = 0; j < records.length(); j++) {
+                    JSONObject record = records.optJSONObject(j);
+                    if (record == null) continue;
+                    found = true;
+                    writer.line(record.optString("date", "")
+                        + " — " + material.optString("name", "")
+                        + ": " + formatNumber(record.optDouble("quantity", 0))
+                        + " " + material.optString("unit", "шт."), 10, false);
+                }
+            }
+        }
+        if (!found) writer.line(emptyMessage, 11, false);
     }
 
     private void appendExcelRecords(StringBuilder rows, JSONObject material,
