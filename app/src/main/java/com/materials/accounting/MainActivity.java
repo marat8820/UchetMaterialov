@@ -17,6 +17,9 @@ import java.text.DecimalFormatSymbols;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 
 public class MainActivity extends Activity {
 
@@ -282,6 +285,10 @@ public class MainActivity extends Activity {
         root.addView(materialButton, buttonParams());
         materialButton.setOnClickListener(v -> showMaterials(index));
 
+        Button history = makeButton("📋  ИСТОРИЯ ОПЕРАЦИЙ");
+        root.addView(history, buttonParams());
+        history.setOnClickListener(v -> showHistory(index));
+
         Button back = makeButton("← НАЗАД К ОБЪЕКТАМ");
         root.addView(back, buttonParams());
         back.setOnClickListener(v -> showHome());
@@ -302,6 +309,123 @@ public class MainActivity extends Activity {
                 })
                 .show()
         );
+    }
+
+
+    private void showHistory(int objectIndex) {
+        JSONObject item = objects.optJSONObject(objectIndex);
+        if (item == null) return;
+
+        selectedObject = objectIndex;
+        prepareScreen("📋  ИСТОРИЯ ОПЕРАЦИЙ");
+
+        TextView objectName = text(item.optString("name"), 18, gold);
+        objectName.setPadding(0, 0, 0, 15);
+        root.addView(objectName);
+
+        JSONArray materials = item.optJSONArray("materials");
+        ArrayList<JSONObject> history = new ArrayList<>();
+        if (materials != null) {
+            for (int i = 0; i < materials.length(); i++) {
+                JSONObject material = materials.optJSONObject(i);
+                if (material == null) continue;
+
+                JSONArray receipts = material.optJSONArray("receipts");
+                if (receipts != null) {
+                    for (int j = 0; j < receipts.length(); j++) {
+                        JSONObject record = receipts.optJSONObject(j);
+                        if (record == null) continue;
+                        try {
+                            JSONObject event = new JSONObject(record.toString());
+                            event.put("type", "ПОСТУПЛЕНИЕ");
+                            event.put("material", material.optString("name"));
+                            event.put("unit", material.optString("unit", "шт."));
+                            history.add(event);
+                        } catch (Exception ignored) { }
+                    }
+                }
+
+                JSONArray expenses = material.optJSONArray("expenses");
+                if (expenses != null) {
+                    for (int j = 0; j < expenses.length(); j++) {
+                        JSONObject record = expenses.optJSONObject(j);
+                        if (record == null) continue;
+                        try {
+                            JSONObject event = new JSONObject(record.toString());
+                            event.put("type", "РАСХОД");
+                            event.put("material", material.optString("name"));
+                            event.put("unit", material.optString("unit", "шт."));
+                            history.add(event);
+                        } catch (Exception ignored) { }
+                    }
+                }
+            }
+        }
+
+        Collections.sort(history, new Comparator<JSONObject>() {
+            @Override
+            public int compare(JSONObject first, JSONObject second) {
+                String a = first.optString("date", "");
+                String b = second.optString("date", "");
+                try {
+                    SimpleDateFormat parser = new SimpleDateFormat(
+                        "dd.MM.yyyy HH:mm", Locale.getDefault());
+                    Date dateA = parser.parse(a);
+                    Date dateB = parser.parse(b);
+                    if (dateA == null || dateB == null) return b.compareTo(a);
+                    return dateB.compareTo(dateA);
+                } catch (Exception e) {
+                    return b.compareTo(a);
+                }
+            }
+        });
+
+        if (history.isEmpty()) {
+            TextView empty = text("Операций пока нет", 16, white);
+            empty.setPadding(0, 20, 0, 20);
+            root.addView(empty);
+        } else {
+            TextView total = text("Всего операций: " + history.size(), 16, gold);
+            total.setPadding(0, 0, 0, 15);
+            root.addView(total);
+
+            for (JSONObject event : history) {
+                LinearLayout card = new LinearLayout(this);
+                card.setOrientation(LinearLayout.VERTICAL);
+                card.setPadding(18, 16, 18, 16);
+                card.setBackground(shape(darkGreen, 16));
+                LinearLayout.LayoutParams cp =
+                    new LinearLayout.LayoutParams(-1, -2);
+                cp.bottomMargin = 12;
+                root.addView(card, cp);
+
+                String type = event.optString("type", "ОПЕРАЦИЯ");
+                TextView typeText = text(type, 18, gold);
+                typeText.setTypeface(null, Typeface.BOLD);
+                card.addView(typeText);
+
+                TextView materialText = text(
+                    "Материал: " + event.optString("material"), 16, white);
+                materialText.setPadding(0, 7, 0, 4);
+                card.addView(materialText);
+
+                String sign = "ПОСТУПЛЕНИЕ".equals(type) ? "+" : "−";
+                TextView quantityText = text(
+                    "Количество: " + sign
+                        + formatNumber(event.optDouble("quantity", 0))
+                        + " " + event.optString("unit", "шт."), 16, white);
+                card.addView(quantityText);
+
+                TextView dateText = text(
+                    "Дата: " + event.optString("date", "не указана"), 14, white);
+                dateText.setPadding(0, 5, 0, 0);
+                card.addView(dateText);
+            }
+        }
+
+        Button back = makeButton("← НАЗАД К ОБЪЕКТУ");
+        root.addView(back, buttonParams());
+        back.setOnClickListener(v -> showObject(objectIndex));
     }
 
     private void showMaterials(int objectIndex) {
