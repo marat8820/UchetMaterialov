@@ -184,6 +184,10 @@ public class MainActivity extends Activity {
         root.addView(add, buttonParams());
         add.setOnClickListener(v -> addObject());
 
+        Button archiveButton = makeButton("🗄  АРХИВ ОБЪЕКТОВ");
+        root.addView(archiveButton, buttonParams());
+        archiveButton.setOnClickListener(v -> showArchive());
+
         TextView listTitle = text("Список объектов", 18, white);
         listTitle.setPadding(0, 20, 0, 15);
         root.addView(listTitle);
@@ -309,6 +313,84 @@ public class MainActivity extends Activity {
                 showObject(objectIndex);
             }
         });
+    }
+
+    private void showArchive() {
+        selectedObject = -1;
+        prepareScreen("🗄  АРХИВ ОБЪЕКТОВ");
+
+        TextView subtitle = text(
+            "Здесь хранятся объекты, которые были архивированы. Их данные и история сохранены.",
+            15, white
+        );
+        subtitle.setPadding(0, 0, 0, 18);
+        root.addView(subtitle);
+
+        int archivedCount = 0;
+        for (int i = 0; i < objects.length(); i++) {
+            JSONObject item = objects.optJSONObject(i);
+            if (item == null || !item.optBoolean("archived", false)) continue;
+            archivedCount++;
+
+            final int index = i;
+            LinearLayout card = new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(18, 18, 18, 18);
+            card.setBackground(shape(darkGreen, 18));
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, -2);
+            cp.bottomMargin = 14;
+            root.addView(card, cp);
+
+            TextView name = text(item.optString("name", "Объект"), 20, gold);
+            name.setTypeface(null, Typeface.BOLD);
+            card.addView(name);
+
+            TextView address = text("Адрес: " + item.optString("address"), 14, white);
+            address.setPadding(0, 8, 0, 4);
+            card.addView(address);
+
+            TextView responsible = text(
+                "Ответственный: " + item.optString("responsible"), 14, white
+            );
+            card.addView(responsible);
+
+            JSONArray materials = item.optJSONArray("materials");
+            int materialCount = materials == null ? 0 : materials.length();
+            TextView info = text("Материалов: " + materialCount, 14, gold);
+            info.setPadding(0, 8, 0, 10);
+            card.addView(info);
+
+            Button open = makeButton("ОТКРЫТЬ И ПОСМОТРЕТЬ");
+            card.addView(open, buttonParams());
+            open.setOnClickListener(v -> showObject(index));
+
+            Button restore = makeButton("↩ ВЕРНУТЬ В АКТИВНЫЕ ОБЪЕКТЫ");
+            card.addView(restore, buttonParams());
+            restore.setOnClickListener(v ->
+                new AlertDialog.Builder(this)
+                    .setTitle("Вернуть объект?")
+                    .setMessage("Объект снова появится в основном списке.")
+                    .setNegativeButton("Отмена", null)
+                    .setPositiveButton("Вернуть", (d, w) -> {
+                        try { item.put("archived", false); } catch (Exception ignored) { }
+                        saveObjects();
+                        showArchive();
+                        Toast.makeText(this, "Объект возвращён", Toast.LENGTH_SHORT).show();
+                    })
+                    .show()
+            );
+        }
+
+        if (archivedCount == 0) {
+            TextView empty = text("Архив пока пустой", 17, gold);
+            empty.setGravity(Gravity.CENTER);
+            empty.setPadding(0, 30, 0, 30);
+            root.addView(empty);
+        }
+
+        Button back = makeButton("← НАЗАД К ОБЪЕКТАМ");
+        root.addView(back, buttonParams());
+        back.setOnClickListener(v -> showHome());
     }
 
     private void addObject() {
@@ -484,22 +566,38 @@ public class MainActivity extends Activity {
         root.addView(back, buttonParams());
         back.setOnClickListener(v -> showHome());
 
-        Button archive = makeButton("АРХИВИРОВАТЬ ОБЪЕКТ");
-        root.addView(archive, buttonParams());
-        archive.setOnClickListener(v ->
-            new AlertDialog.Builder(this)
-                .setTitle("Архивировать объект?")
-                .setMessage("Объект исчезнет из активного списка. Его данные сохранятся.")
-                .setNegativeButton("Отмена", null)
-                .setPositiveButton("Архивировать", (d, w) -> {
-                    try {
-                        item.put("archived", true);
-                    } catch (Exception ignored) { }
-                    saveObjects();
-                    showHome();
-                })
-                .show()
-        );
+        if (item.optBoolean("archived", false)) {
+            Button restore = makeButton("↩  ВЕРНУТЬ ОБЪЕКТ ИЗ АРХИВА");
+            root.addView(restore, buttonParams());
+            restore.setOnClickListener(v ->
+                new AlertDialog.Builder(this)
+                    .setTitle("Вернуть объект?")
+                    .setMessage("Объект снова появится в основном списке.")
+                    .setNegativeButton("Отмена", null)
+                    .setPositiveButton("Вернуть", (d, w) -> {
+                        try { item.put("archived", false); } catch (Exception ignored) { }
+                        saveObjects();
+                        showHome();
+                        Toast.makeText(this, "Объект возвращён", Toast.LENGTH_SHORT).show();
+                    })
+                    .show()
+            );
+        } else {
+            Button archive = makeButton("АРХИВИРОВАТЬ ОБЪЕКТ");
+            root.addView(archive, buttonParams());
+            archive.setOnClickListener(v ->
+                new AlertDialog.Builder(this)
+                    .setTitle("Архивировать объект?")
+                    .setMessage("Объект исчезнет из активного списка. Его данные сохранятся.")
+                    .setNegativeButton("Отмена", null)
+                    .setPositiveButton("Архивировать", (d, w) -> {
+                        try { item.put("archived", true); } catch (Exception ignored) { }
+                        saveObjects();
+                        showHome();
+                    })
+                    .show()
+            );
+        }
     }
 
 
