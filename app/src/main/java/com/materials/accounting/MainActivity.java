@@ -327,246 +327,155 @@ public class MainActivity extends Activity {
         );
     }
 
-    void showMaterials(int index) {
-        JSONObject item = objects.optJSONObject(index);
-        if (item == null) return;
+    
+void addMaterial(int objectIndex, int materialIndex) {
+    JSONObject item = objects.optJSONObject(objectIndex);
+    if (item == null) return;
 
-        selectedObject = index;
-
-        JSONArray materials = item.optJSONArray("materials");
-        if (materials == null) {
-            materials = new JSONArray();
-            try {
-                item.put("materials", materials);
-            } catch (Exception e) {}
-        }
-
-        prepareScreen("📦  МАТЕРИАЛЫ");
-
-        TextView objectName = text(
-            "Объект: " + item.optString("name"),
-            16, gold
-        );
-        objectName.setPadding(0, 0, 0, 20);
-        root.addView(objectName);
-
-        Button add = makeButton("＋ ДОБАВИТЬ МАТЕРИАЛ");
-        root.addView(add, buttonParams());
-        add.setOnClickListener(v -> addMaterial(index, -1));
-
-        TextView heading = text("Список материалов", 18, white);
-        heading.setPadding(0, 20, 0, 15);
-        root.addView(heading);
-
-        if (materials.length() == 0) {
-            TextView empty = text(
-                "Материалов пока нет. Нажмите «Добавить материал».",
-                15, white
-            );
-            empty.setPadding(0, 10, 0, 20);
-            root.addView(empty);
-        }
-
-        for (int i = 0; i < materials.length(); i++) {
-            JSONObject material = materials.optJSONObject(i);
-            if (material == null) continue;
-
-            final int materialIndex = i;
-
-            LinearLayout card = new LinearLayout(this);
-            card.setOrientation(1);
-            card.setPadding(16, 16, 16, 16);
-            card.setBackground(shape(darkGreen, 16));
-
-            LinearLayout.LayoutParams cp =
-                new LinearLayout.LayoutParams(-1, -2);
-            cp.bottomMargin = 12;
-            root.addView(card, cp);
-
-            TextView materialName = text(
-                material.optString("name"), 19, gold
-            );
-            materialName.setTypeface(null, Typeface.BOLD);
-            card.addView(materialName);
-
-            TextView quantity = text(
-                "Количество: " +
-                formatNumber(material.optDouble("quantity", 0)) +
-                " " + material.optString("unit"),
-                16, white
-            );
-            quantity.setPadding(0, 10, 0, 12);
-            card.addView(quantity);
-
-            Button edit = makeButton("ИЗМЕНИТЬ");
-            card.addView(edit, buttonParams());
-            edit.setOnClickListener(v ->
-                addMaterial(index, materialIndex)
-            );
-
-            Button delete = makeButton("УДАЛИТЬ");
-            card.addView(delete, buttonParams());
-            delete.setOnClickListener(v ->
-                new AlertDialog.Builder(this)
-                    .setTitle("Удалить материал?")
-                    .setMessage(material.optString("name"))
-                    .setNegativeButton("Отмена", null)
-                    .setPositiveButton("Удалить", (d, w) -> {
-                        JSONArray current =
-                            item.optJSONArray("materials");
-                        if (current != null) {
-                            current.remove(materialIndex);
-                        }
-                        saveObjects();
-                        showMaterials(index);
-                    })
-                    .show()
-            );
-        }
-
-        Button back = makeButton("← НАЗАД К ОБЪЕКТУ");
-        root.addView(back, buttonParams());
-        back.setOnClickListener(v -> showObject(index));
+    JSONArray materials = item.optJSONArray("materials");
+    if (materials == null) {
+        materials = new JSONArray();
+        try {
+            item.put("materials", materials);
+        } catch (Exception e) {}
     }
 
-    String formatNumber(double number) {
-        if (number == Math.floor(number)) {
-            return String.valueOf((long) number);
-        }
-        return String.valueOf(number);
+    JSONObject old = null;
+    if (materialIndex >= 0) {
+        old = materials.optJSONObject(materialIndex);
     }
 
-    void addMaterial(int objectIndex, int materialIndex) {
-        JSONObject item = objects.optJSONObject(objectIndex);
-        if (item == null) return;
+    // Фиксируем ссылки ДО создания обработчика
+    final JSONObject existingMaterial = old;
+    final JSONArray savedMaterials = materials;
 
-        JSONArray materials = item.optJSONArray("materials");
-        if (materials == null) {
-            materials = new JSONArray();
-            try {
-                item.put("materials", materials);
-            } catch (Exception e) {}
-        }
+    LinearLayout form = new LinearLayout(this);
+    form.setOrientation(1);
+    form.setPadding(25, 5, 25, 5);
 
-        JSONObject old = null;
-        if (materialIndex >= 0) {
-            old = materials.optJSONObject(materialIndex);
-        }
+    EditText name = new EditText(this);
+    name.setHint("Название материала");
+    if (existingMaterial != null) {
+        name.setText(existingMaterial.optString("name"));
+    }
+    form.addView(name);
 
-        LinearLayout form = new LinearLayout(this);
-        form.setOrientation(1);
-        form.setPadding(25, 5, 25, 5);
+    TextView unitLabel = text(
+        "Единица измерения", 14, Color.BLACK
+    );
+    form.addView(unitLabel);
 
-        EditText name = new EditText(this);
-        name.setHint("Название материала");
-        if (old != null) name.setText(old.optString("name"));
-        form.addView(name);
+    Spinner unitSpinner = new Spinner(this);
 
-        TextView unitLabel = text("Единица измерения", 14, Color.BLACK);
-        form.addView(unitLabel);
+    ArrayAdapter<String> adapter = new ArrayAdapter<>(
+        this,
+        android.R.layout.simple_spinner_item,
+        units
+    );
 
-        Spinner unitSpinner = new Spinner(this);
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(
-            this,
-            android.R.layout.simple_spinner_item,
-            units
-        );
-        adapter.setDropDownViewResource(
-            android.R.layout.simple_spinner_dropdown_item
-        );
-        unitSpinner.setAdapter(adapter);
+    adapter.setDropDownViewResource(
+        android.R.layout.simple_spinner_dropdown_item
+    );
 
-        if (old != null) {
-            String oldUnit = old.optString("unit", "шт.");
-            for (int i = 0; i < units.length; i++) {
-                if (units[i].equals(oldUnit)) {
-                    unitSpinner.setSelection(i);
-                    break;
-                }
+    unitSpinner.setAdapter(adapter);
+
+    if (existingMaterial != null) {
+        String oldUnit = existingMaterial.optString("unit", "шт.");
+
+        for (int i = 0; i < units.length; i++) {
+            if (units[i].equals(oldUnit)) {
+                unitSpinner.setSelection(i);
+                break;
             }
         }
-
-        form.addView(unitSpinner);
-
-        EditText quantity = new EditText(this);
-        quantity.setHint("Начальное количество");
-        quantity.setInputType(
-            InputType.TYPE_CLASS_NUMBER |
-            InputType.TYPE_NUMBER_FLAG_DECIMAL
-        );
-
-        if (old != null) {
-            quantity.setText(
-                formatNumber(old.optDouble("quantity", 0))
-            );
-        } else {
-            quantity.setText("0");
-        }
-
-        form.addView(quantity);
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-            .setTitle(old == null ?
-                "Новый материал" : "Изменить материал")
-            .setView(form)
-            .setNegativeButton("Отмена", null)
-            .setPositiveButton("Сохранить", null)
-            .create();
-
-        dialog.setOnShowListener(v -> {
-            dialog.getButton(-1).setOnClickListener(btn -> {
-                String n = name.getText().toString().trim();
-                String q = quantity.getText().toString()
-                    .trim().replace(',', '.');
-
-                if (n.isEmpty()) {
-                    name.setError("Введите название материала");
-                    return;
-                }
-
-                double amount;
-                try {
-                    amount = Double.parseDouble(q);
-                    if (amount < 0 ||
-                        Double.isNaN(amount) ||
-                        Double.isInfinite(amount)) {
-                        throw new Exception();
-                    }
-                } catch (Exception e) {
-                    quantity.setError("Введите правильное количество");
-                    return;
-                }
-
-                // Исправление ошибки Java:
-                // сохраняем ссылки в final-переменные
-                final JSONObject existingMaterial = old;
-                final JSONArray savedMaterials = materials;
-
-                JSONObject material = existingMaterial;
-
-                if (material == null) {
-                    material = new JSONObject();
-                }
-
-                try {
-                    material.put("name", n);
-                    material.put("unit",
-                        unitSpinner.getSelectedItem().toString());
-                    material.put("quantity", amount);
-
-                    if (existingMaterial == null) {
-                        savedMaterials.put(material);
-                    }
-                } catch (Exception e) {
-                    return;
-                }
-
-                saveObjects();
-                dialog.dismiss();
-                showMaterials(objectIndex);
-            });
-        });
-
-        dialog.show();
     }
+
+    form.addView(unitSpinner);
+
+    EditText quantity = new EditText(this);
+    quantity.setHint("Начальное количество");
+    quantity.setInputType(
+        InputType.TYPE_CLASS_NUMBER |
+        InputType.TYPE_NUMBER_FLAG_DECIMAL
+    );
+
+    if (existingMaterial != null) {
+        quantity.setText(
+            formatNumber(
+                existingMaterial.optDouble("quantity", 0)
+            )
+        );
+    } else {
+        quantity.setText("0");
+    }
+
+    form.addView(quantity);
+
+    AlertDialog dialog = new AlertDialog.Builder(this)
+        .setTitle(existingMaterial == null ?
+            "Новый материал" : "Изменить материал")
+        .setView(form)
+        .setNegativeButton("Отмена", null)
+        .setPositiveButton("Сохранить", null)
+        .create();
+
+    dialog.setOnShowListener(v -> {
+        dialog.getButton(-1).setOnClickListener(btn -> {
+
+            String n = name.getText().toString().trim();
+            String q = quantity.getText().toString()
+                .trim().replace(',', '.');
+
+            if (n.isEmpty()) {
+                name.setError("Введите название материала");
+                return;
+            }
+
+            double amount;
+
+            try {
+                amount = Double.parseDouble(q);
+
+                if (amount < 0 ||
+                    Double.isNaN(amount) ||
+                    Double.isInfinite(amount)) {
+                    throw new Exception();
+                }
+
+            } catch (Exception e) {
+                quantity.setError(
+                    "Введите правильное количество"
+                );
+                return;
+            }
+
+            JSONObject material = existingMaterial;
+
+            if (material == null) {
+                material = new JSONObject();
+            }
+
+            try {
+                material.put("name", n);
+                material.put(
+                    "unit",
+                    unitSpinner.getSelectedItem().toString()
+                );
+                material.put("quantity", amount);
+
+                if (existingMaterial == null) {
+                    savedMaterials.put(material);
+                }
+
+            } catch (Exception e) {
+                return;
+            }
+
+            saveObjects();
+            dialog.dismiss();
+            showMaterials(objectIndex);
+        });
+    });
+
+    dialog.show();
 }
