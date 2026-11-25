@@ -370,6 +370,10 @@ public class MainActivity extends Activity {
             card.addView(receipt, buttonParams());
             receipt.setOnClickListener(v -> addReceipt(objectIndex, materialIndex));
 
+            Button expense = makeButton("− РАСХОД");
+            card.addView(expense, buttonParams());
+            expense.setOnClickListener(v -> addExpense(objectIndex, materialIndex));
+
             Button edit = makeButton("ИЗМЕНИТЬ");
             card.addView(edit, buttonParams());
             edit.setOnClickListener(v -> addMaterial(objectIndex, materialIndex));
@@ -607,6 +611,99 @@ public class MainActivity extends Activity {
                     dialog.dismiss();
                     showMaterials(objectIndex);
                     Toast.makeText(this, "Поступление добавлено", Toast.LENGTH_SHORT).show();
+                })
+        );
+
+        dialog.show();
+    }
+
+    private void addExpense(int objectIndex, int materialIndex) {
+        JSONObject item = objects.optJSONObject(objectIndex);
+        if (item == null) return;
+
+        JSONArray materials = item.optJSONArray("materials");
+        if (materials == null) return;
+
+        JSONObject material = materials.optJSONObject(materialIndex);
+        if (material == null) return;
+
+        EditText quantity = new EditText(this);
+        quantity.setHint("Количество израсходованного материала");
+        quantity.setInputType(
+            InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL
+        );
+
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(25, 10, 25, 10);
+
+        TextView info = text(
+            "Материал: " + material.optString("name") + "\nТекущий остаток: "
+                + formatNumber(material.optDouble("quantity", 0)) + " "
+                + material.optString("unit", "шт."),
+            15, Color.BLACK
+        );
+        form.addView(info);
+        form.addView(quantity);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("Расход материала")
+            .setView(form)
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Списать", null)
+            .create();
+
+        dialog.setOnShowListener(v ->
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(btn -> {
+                    String value = quantity.getText().toString().trim().replace(',', '.');
+                    double spent;
+                    try {
+                        spent = Double.parseDouble(value);
+                        if (spent <= 0 || Double.isNaN(spent)
+                                || Double.isInfinite(spent)) {
+                            throw new NumberFormatException();
+                        }
+                    } catch (Exception e) {
+                        quantity.setError("Введите количество больше нуля");
+                        return;
+                    }
+
+                    double current = material.optDouble("quantity", 0);
+                    if (spent > current) {
+                        quantity.setError(
+                            "Недостаточно материала. Доступно: " + formatNumber(current)
+                        );
+                        Toast.makeText(this, "Нельзя списать больше остатка",
+                            Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+
+                    try {
+                        material.put("quantity", current - spent);
+
+                        JSONArray expenses = material.optJSONArray("expenses");
+                        if (expenses == null) expenses = new JSONArray();
+
+                        JSONObject expenseRecord = new JSONObject();
+                        String date = new SimpleDateFormat(
+                            "dd.MM.yyyy HH:mm", Locale.getDefault()
+                        ).format(new Date());
+                        expenseRecord.put("quantity", spent);
+                        expenseRecord.put("date", date);
+                        expenses.put(expenseRecord);
+                        material.put("expenses", expenses);
+                        item.put("materials", materials);
+                    } catch (Exception e) {
+                        Toast.makeText(this, "Не удалось сохранить расход",
+                            Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+
+                    saveObjects();
+                    dialog.dismiss();
+                    showMaterials(objectIndex);
+                    Toast.makeText(this, "Расход записан", Toast.LENGTH_SHORT).show();
                 })
         );
 
