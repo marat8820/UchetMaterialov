@@ -14,6 +14,8 @@ import org.json.*;
 
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
@@ -364,6 +366,10 @@ public class MainActivity extends Activity {
             amount.setPadding(0, 8, 0, 12);
             card.addView(amount);
 
+            Button receipt = makeButton("＋ ПОСТУПЛЕНИЕ");
+            card.addView(receipt, buttonParams());
+            receipt.setOnClickListener(v -> addReceipt(objectIndex, materialIndex));
+
             Button edit = makeButton("ИЗМЕНИТЬ");
             card.addView(edit, buttonParams());
             edit.setOnClickListener(v -> addMaterial(objectIndex, materialIndex));
@@ -517,6 +523,90 @@ public class MainActivity extends Activity {
                     saveObjects();
                     dialog.dismiss();
                     showMaterials(objectIndex);
+                })
+        );
+
+        dialog.show();
+    }
+
+    private void addReceipt(int objectIndex, int materialIndex) {
+        JSONObject item = objects.optJSONObject(objectIndex);
+        if (item == null) return;
+
+        JSONArray materials = item.optJSONArray("materials");
+        if (materials == null) return;
+
+        JSONObject material = materials.optJSONObject(materialIndex);
+        if (material == null) return;
+
+        EditText quantity = new EditText(this);
+        quantity.setHint("Количество поступившего материала");
+        quantity.setInputType(
+            InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL
+        );
+
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(25, 10, 25, 10);
+
+        TextView info = text(
+            "Материал: " + material.optString("name") + "\nТекущий остаток: "
+                + formatNumber(material.optDouble("quantity", 0)) + " "
+                + material.optString("unit", "шт."),
+            15, Color.BLACK
+        );
+        form.addView(info);
+        form.addView(quantity);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("Поступление материала")
+            .setView(form)
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Добавить", null)
+            .create();
+
+        dialog.setOnShowListener(v ->
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(btn -> {
+                    String value = quantity.getText().toString().trim().replace(',', '.');
+                    double received;
+                    try {
+                        received = Double.parseDouble(value);
+                        if (received <= 0 || Double.isNaN(received)
+                                || Double.isInfinite(received)) {
+                            throw new NumberFormatException();
+                        }
+                    } catch (Exception e) {
+                        quantity.setError("Введите количество больше нуля");
+                        return;
+                    }
+
+                    double current = material.optDouble("quantity", 0);
+                    try {
+                        material.put("quantity", current + received);
+
+                        JSONArray receipts = material.optJSONArray("receipts");
+                        if (receipts == null) receipts = new JSONArray();
+
+                        JSONObject receiptRecord = new JSONObject();
+                        String date = new SimpleDateFormat(
+                            "dd.MM.yyyy HH:mm", Locale.getDefault()
+                        ).format(new Date());
+                        receiptRecord.put("quantity", received);
+                        receiptRecord.put("date", date);
+                        receipts.put(receiptRecord);
+                        material.put("receipts", receipts);
+                        item.put("materials", materials);
+                    } catch (Exception e) {
+                        Toast.makeText(this, "Не удалось сохранить поступление",
+                            Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+
+                    saveObjects();
+                    dialog.dismiss();
+                    showMaterials(objectIndex);
+                    Toast.makeText(this, "Поступление добавлено", Toast.LENGTH_SHORT).show();
                 })
         );
 
