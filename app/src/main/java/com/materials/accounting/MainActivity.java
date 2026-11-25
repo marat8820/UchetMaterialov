@@ -467,7 +467,7 @@ void addMaterial(int objectIndex, int materialIndex) {
                     savedMaterials.put(material);
                 }
 
-            } catch (Exception e) {
+            } catch (Exception e) {}
                 return;
             }
 
