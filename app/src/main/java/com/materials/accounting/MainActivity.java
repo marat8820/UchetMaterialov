@@ -325,6 +325,8 @@ public class MainActivity extends Activity {
 
 
 
+    private int pendingExcelObjectIndex = -1;
+
     private void createExcelReport(int objectIndex) {
         JSONObject item = objects.optJSONObject(objectIndex);
         if (item == null) return;
@@ -337,11 +339,9 @@ public class MainActivity extends Activity {
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         intent.putExtra(Intent.EXTRA_TITLE, "Отчёт_" + fileName + ".xlsx");
-        startActivityForResult(intent, 501);
         pendingExcelObjectIndex = objectIndex;
+        startActivityForResult(intent, 501);
     }
-
-    private int pendingExcelObjectIndex = -1;
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -364,6 +364,9 @@ public class MainActivity extends Activity {
         JSONObject item = objects.optJSONObject(objectIndex);
         if (item == null) throw new IOException("Объект не найден");
 
+        JSONArray materials = item.optJSONArray("materials");
+        String objectName = item.optString("name", "");
+
         OutputStream output = getContentResolver().openOutputStream(uri);
         if (output == null) throw new IOException("Не удалось открыть файл");
 
@@ -377,87 +380,103 @@ public class MainActivity extends Activity {
                 + "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>"
                 + "<Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>"
                 + "<Override PartName=\"/xl/worksheets/sheet2.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>"
+                + "<Override PartName=\"/xl/worksheets/sheet3.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>"
                 + "</Types>");
+
             addExcelEntry(zip, "_rels/.rels",
                 "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
                 + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
                 + "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>"
                 + "</Relationships>");
+
             addExcelEntry(zip, "xl/workbook.xml",
                 "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
                 + "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" "
                 + "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
-                + "<sheets><sheet name=\"Остатки\" sheetId=\"1\" r:id=\"rId1\"/>"
-                + "<sheet name=\"История\" sheetId=\"2\" r:id=\"rId2\"/></sheets></workbook>");
+                + "<sheets>"
+                + "<sheet name=\"Текущее состояние\" sheetId=\"1\" r:id=\"rId1\"/>"
+                + "<sheet name=\"Поступления\" sheetId=\"2\" r:id=\"rId2\"/>"
+                + "<sheet name=\"Расходы\" sheetId=\"3\" r:id=\"rId3\"/>"
+                + "</sheets></workbook>");
+
             addExcelEntry(zip, "xl/_rels/workbook.xml.rels",
                 "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
                 + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
                 + "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/>"
                 + "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet2.xml\"/>"
+                + "<Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet3.xml\"/>"
                 + "</Relationships>");
 
-            StringBuilder balances = new StringBuilder();
-            balances.append(excelRow(new String[]{"Материал", "Единица", "Остаток"}, null));
-            JSONArray materials = item.optJSONArray("materials");
-            if (materials != null) {
-                for (int i = 0; i < materials.length(); i++) {
-                    JSONObject material = materials.optJSONObject(i);
-                    if (material == null) continue;
-                    balances.append(excelRow(
-                        new String[]{material.optString("name"),
-                            material.optString("unit", "шт."),
-                            formatNumber(material.optDouble("quantity", 0))},
-                        new boolean[]{false, false, true}));
-                }
-            }
-            addExcelEntry(zip, "xl/worksheets/sheet1.xml",
-                excelSheet(balances.toString()));
-
-            StringBuilder historyRows = new StringBuilder();
-            historyRows.append(excelRow(new String[]{
-                "Дата", "Операция", "Материал", "Количество", "Единица", "Объект"
+            // Лист 1. Текущий остаток материалов на выбранном объекте.
+            StringBuilder balanceRows = new StringBuilder();
+            balanceRows.append(excelRow(new String[]{
+                "№", "Материал", "Единица измерения", "Остаток"
             }, null));
 
             if (materials != null) {
+                int number = 1;
                 for (int i = 0; i < materials.length(); i++) {
                     JSONObject material = materials.optJSONObject(i);
                     if (material == null) continue;
-                    appendExcelHistory(historyRows, material, "receipts",
-                        "ПОСТУПЛЕНИЕ", "");
-                    appendExcelHistory(historyRows, material, "expenses",
-                        "РАСХОД", "");
-                    appendExcelHistory(historyRows, material, "transfers",
-                        "ПЕРЕМЕЩЕНИЕ", "");
+                    balanceRows.append(excelRow(new String[]{
+                        String.valueOf(number++),
+                        material.optString("name", ""),
+                        material.optString("unit", "шт."),
+                        formatNumber(material.optDouble("quantity", 0))
+                    }, new boolean[]{true, false, false, true}));
+                }
+            }
+            addExcelEntry(zip, "xl/worksheets/sheet1.xml",
+                excelSheet(balanceRows.toString()));
+
+            // Лист 2. Только поступления. Перемещения сюда не включаются.
+            StringBuilder receiptRows = new StringBuilder();
+            receiptRows.append(excelRow(new String[]{
+                "Дата", "Материал", "Количество", "Единица измерения", "Объект"
+            }, null));
+            if (materials != null) {
+                for (int i = 0; i < materials.length(); i++) {
+                    JSONObject material = materials.optJSONObject(i);
+                    if (material == null) continue;
+                    appendExcelRecords(receiptRows, material, "receipts", objectName);
                 }
             }
             addExcelEntry(zip, "xl/worksheets/sheet2.xml",
-                excelSheet(historyRows.toString()));
+                excelSheet(receiptRows.toString()));
+
+            // Лист 3. Только расходы. Перемещения сюда не включаются.
+            StringBuilder expenseRows = new StringBuilder();
+            expenseRows.append(excelRow(new String[]{
+                "Дата", "Материал", "Количество", "Единица измерения", "Объект"
+            }, null));
+            if (materials != null) {
+                for (int i = 0; i < materials.length(); i++) {
+                    JSONObject material = materials.optJSONObject(i);
+                    if (material == null) continue;
+                    appendExcelRecords(expenseRows, material, "expenses", objectName);
+                }
+            }
+            addExcelEntry(zip, "xl/worksheets/sheet3.xml",
+                excelSheet(expenseRows.toString()));
         } finally {
             zip.close();
         }
     }
 
-    private void appendExcelHistory(StringBuilder rows, JSONObject material,
-            String key, String operation, String ignored) {
+    private void appendExcelRecords(StringBuilder rows, JSONObject material,
+            String key, String objectName) {
         JSONArray records = material.optJSONArray(key);
         if (records == null) return;
         for (int i = 0; i < records.length(); i++) {
             JSONObject record = records.optJSONObject(i);
             if (record == null) continue;
-            String type = operation;
-            String other = "";
-            String amount = formatNumber(record.optDouble("quantity", 0));
-            if ("transfers".equals(key)) {
-                boolean outgoing = "OUT".equals(record.optString("direction"));
-                type = outgoing ? "ПЕРЕМЕЩЕНИЕ →" : "ПЕРЕМЕЩЕНИЕ ←";
-                other = record.optString("otherObject", "");
-                if (outgoing) amount = "-" + amount;
-                else amount = "+" + amount;
-            }
             rows.append(excelRow(new String[]{
-                record.optString("date", ""), type, material.optString("name"),
-                amount, material.optString("unit", "шт."), other
-            }, new boolean[]{false, false, false, true, false, false}));
+                record.optString("date", ""),
+                material.optString("name", ""),
+                formatNumber(record.optDouble("quantity", 0)),
+                material.optString("unit", "шт."),
+                objectName
+            }, new boolean[]{false, false, true, false, false}));
         }
     }
 
@@ -484,7 +503,7 @@ public class MainActivity extends Activity {
                         .append("</t></is></c>");
                 }
             } else {
-                row.append("<c t=\"inlineStr\"><is><t>")
+                row.append("<c t=\"inlineStr\"><is><t xml:space=\"preserve\">")
                     .append(xmlEscape(value))
                     .append("</t></is></c>");
             }
