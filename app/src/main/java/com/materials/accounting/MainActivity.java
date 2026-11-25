@@ -43,7 +43,7 @@ public class MainActivity extends Activity {
     private int selectedObject = -1;
 
     private final String[] units = {
-        "шт.", "м", "м²", "м³", "кг", "упаковка"
+        "шт.", "м", "м²", "м³", "л", "кг", "упаковка"
     };
 
     @Override
