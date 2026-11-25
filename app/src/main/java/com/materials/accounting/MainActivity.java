@@ -289,6 +289,10 @@ public class MainActivity extends Activity {
         root.addView(history, buttonParams());
         history.setOnClickListener(v -> showHistory(index));
 
+        Button transfer = makeButton("⇄  ПЕРЕМЕСТИТЬ МАТЕРИАЛЫ");
+        root.addView(transfer, buttonParams());
+        transfer.setOnClickListener(v -> showTransfer(index));
+
         Button back = makeButton("← НАЗАД К ОБЪЕКТАМ");
         root.addView(back, buttonParams());
         back.setOnClickListener(v -> showHome());
@@ -359,6 +363,24 @@ public class MainActivity extends Activity {
                         } catch (Exception ignored) { }
                     }
                 }
+
+                JSONArray transfers = material.optJSONArray("transfers");
+                if (transfers != null) {
+                    for (int j = 0; j < transfers.length(); j++) {
+                        JSONObject record = transfers.optJSONObject(j);
+                        if (record == null) continue;
+                        try {
+                            JSONObject event = new JSONObject(record.toString());
+                            String direction = event.optString("direction", "");
+                            event.put("type", "OUT".equals(direction)
+                                ? "ПЕРЕМЕЩЕНИЕ → " + event.optString("otherObject")
+                                : "ПЕРЕМЕЩЕНИЕ ← " + event.optString("otherObject"));
+                            event.put("material", material.optString("name"));
+                            event.put("unit", material.optString("unit", "шт."));
+                            history.add(event);
+                        } catch (Exception ignored) { }
+                    }
+                }
             }
         }
 
@@ -409,7 +431,13 @@ public class MainActivity extends Activity {
                 materialText.setPadding(0, 7, 0, 4);
                 card.addView(materialText);
 
-                String sign = "ПОСТУПЛЕНИЕ".equals(type) ? "+" : "−";
+                String sign;
+                if ("ПОСТУПЛЕНИЕ".equals(type)
+                        || type.startsWith("ПЕРЕМЕЩЕНИЕ ←")) {
+                    sign = "+";
+                } else {
+                    sign = "−";
+                }
                 TextView quantityText = text(
                     "Количество: " + sign
                         + formatNumber(event.optDouble("quantity", 0))
@@ -530,6 +558,215 @@ public class MainActivity extends Activity {
         Button back = makeButton("← НАЗАД К ОБЪЕКТУ");
         root.addView(back, buttonParams());
         back.setOnClickListener(v -> showObject(objectIndex));
+    }
+
+
+    private void showTransfer(int sourceObjectIndex) {
+        JSONObject sourceObject = objects.optJSONObject(sourceObjectIndex);
+        if (sourceObject == null) return;
+
+        JSONArray sourceMaterials = sourceObject.optJSONArray("materials");
+        if (sourceMaterials == null || sourceMaterials.length() == 0) {
+            Toast.makeText(this, "Сначала добавьте материалы на этот объект",
+                Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        ArrayList<Integer> destinationIndexes = new ArrayList<>();
+        ArrayList<String> destinationNames = new ArrayList<>();
+        for (int i = 0; i < objects.length(); i++) {
+            JSONObject candidate = objects.optJSONObject(i);
+            if (candidate == null || i == sourceObjectIndex
+                    || candidate.optBoolean("archived", false)) {
+                continue;
+            }
+            destinationIndexes.add(i);
+            destinationNames.add(candidate.optString("name", "Объект"));
+        }
+
+        if (destinationIndexes.isEmpty()) {
+            Toast.makeText(this, "Нет другого активного объекта для перемещения",
+                Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(25, 10, 25, 10);
+
+        TextView destinationLabel = text("Объект-получатель", 14, Color.BLACK);
+        form.addView(destinationLabel);
+
+        Spinner destinationSpinner = new Spinner(this);
+        ArrayAdapter<String> destinationAdapter = new ArrayAdapter<>(
+            this, android.R.layout.simple_spinner_item, destinationNames);
+        destinationAdapter.setDropDownViewResource(
+            android.R.layout.simple_spinner_dropdown_item);
+        destinationSpinner.setAdapter(destinationAdapter);
+        form.addView(destinationSpinner);
+
+        TextView materialLabel = text("Материал для перемещения", 14, Color.BLACK);
+        materialLabel.setPadding(0, 15, 0, 0);
+        form.addView(materialLabel);
+
+        ArrayList<Integer> materialIndexes = new ArrayList<>();
+        ArrayList<String> materialNames = new ArrayList<>();
+        for (int i = 0; i < sourceMaterials.length(); i++) {
+            JSONObject material = sourceMaterials.optJSONObject(i);
+            if (material == null) continue;
+            materialIndexes.add(i);
+            materialNames.add(material.optString("name") + " — остаток: "
+                + formatNumber(material.optDouble("quantity", 0)) + " "
+                + material.optString("unit", "шт."));
+        }
+
+        Spinner materialSpinner = new Spinner(this);
+        ArrayAdapter<String> materialAdapter = new ArrayAdapter<>(
+            this, android.R.layout.simple_spinner_item, materialNames);
+        materialAdapter.setDropDownViewResource(
+            android.R.layout.simple_spinner_dropdown_item);
+        materialSpinner.setAdapter(materialAdapter);
+        form.addView(materialSpinner);
+
+        EditText quantityInput = new EditText(this);
+        quantityInput.setHint("Количество для перемещения");
+        quantityInput.setInputType(
+            InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        form.addView(quantityInput);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("Перемещение материалов")
+            .setView(form)
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Переместить", null)
+            .create();
+
+        dialog.setOnShowListener(v ->
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(btn -> {
+                    if (materialIndexes.isEmpty()) {
+                        Toast.makeText(this, "Нет доступных материалов",
+                            Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+
+                    int destinationPosition = destinationSpinner.getSelectedItemPosition();
+                    int materialPosition = materialSpinner.getSelectedItemPosition();
+                    if (destinationPosition < 0 || materialPosition < 0) return;
+
+                    int destinationIndex = destinationIndexes.get(destinationPosition);
+                    int materialIndex = materialIndexes.get(materialPosition);
+
+                    JSONObject sourceMaterial = sourceMaterials.optJSONObject(materialIndex);
+                    JSONObject destinationObject = objects.optJSONObject(destinationIndex);
+                    if (sourceMaterial == null || destinationObject == null) return;
+
+                    String value = quantityInput.getText().toString()
+                        .trim().replace(',', '.');
+                    double amount;
+                    try {
+                        amount = Double.parseDouble(value);
+                        if (amount <= 0 || Double.isNaN(amount)
+                                || Double.isInfinite(amount)) {
+                            throw new NumberFormatException();
+                        }
+                    } catch (Exception e) {
+                        quantityInput.setError("Введите количество больше нуля");
+                        return;
+                    }
+
+                    double sourceBalance = sourceMaterial.optDouble("quantity", 0);
+                    if (amount > sourceBalance) {
+                        quantityInput.setError("Недостаточно материала. Доступно: "
+                            + formatNumber(sourceBalance));
+                        return;
+                    }
+
+                    String materialName = sourceMaterial.optString("name");
+                    String unit = sourceMaterial.optString("unit", "шт.");
+                    JSONArray destinationMaterials =
+                        destinationObject.optJSONArray("materials");
+                    if (destinationMaterials == null) {
+                        destinationMaterials = new JSONArray();
+                    }
+
+                    JSONObject destinationMaterial = null;
+                    for (int i = 0; i < destinationMaterials.length(); i++) {
+                        JSONObject candidate = destinationMaterials.optJSONObject(i);
+                        if (candidate != null
+                                && candidate.optString("name").trim()
+                                    .equalsIgnoreCase(materialName.trim())
+                                && candidate.optString("unit", "шт.").equals(unit)) {
+                            destinationMaterial = candidate;
+                            break;
+                        }
+                    }
+
+                    boolean createDestinationMaterial = destinationMaterial == null;
+                    if (createDestinationMaterial) {
+                        destinationMaterial = new JSONObject();
+                    }
+
+                    String date = new SimpleDateFormat(
+                        "dd.MM.yyyy HH:mm", Locale.getDefault()).format(new Date());
+                    String sourceName = sourceObject.optString("name");
+                    String destinationName =
+                        destinationObject.optString("name");
+
+                    try {
+                        sourceMaterial.put("quantity", sourceBalance - amount);
+                        destinationMaterial.put("name", materialName);
+                        destinationMaterial.put("unit", unit);
+                        destinationMaterial.put("quantity",
+                            destinationMaterial.optDouble("quantity", 0) + amount);
+
+                        if (createDestinationMaterial) {
+                            destinationMaterials.put(destinationMaterial);
+                        }
+
+                        JSONObject outgoing = new JSONObject();
+                        outgoing.put("quantity", amount);
+                        outgoing.put("date", date);
+                        outgoing.put("direction", "OUT");
+                        outgoing.put("otherObject", destinationName);
+
+                        JSONArray sourceTransfers =
+                            sourceMaterial.optJSONArray("transfers");
+                        if (sourceTransfers == null) sourceTransfers = new JSONArray();
+                        sourceTransfers.put(outgoing);
+                        sourceMaterial.put("transfers", sourceTransfers);
+
+                        JSONObject incoming = new JSONObject();
+                        incoming.put("quantity", amount);
+                        incoming.put("date", date);
+                        incoming.put("direction", "IN");
+                        incoming.put("otherObject", sourceName);
+
+                        JSONArray destinationTransfers =
+                            destinationMaterial.optJSONArray("transfers");
+                        if (destinationTransfers == null) {
+                            destinationTransfers = new JSONArray();
+                        }
+                        destinationTransfers.put(incoming);
+                        destinationMaterial.put("transfers", destinationTransfers);
+
+                        sourceObject.put("materials", sourceMaterials);
+                        destinationObject.put("materials", destinationMaterials);
+                    } catch (Exception e) {
+                        Toast.makeText(this, "Не удалось выполнить перемещение",
+                            Toast.LENGTH_LONG).show();
+                        return;
+                    }
+
+                    saveObjects();
+                    dialog.dismiss();
+                    showObject(sourceObjectIndex);
+                    Toast.makeText(this, "Материал перемещён на объект: "
+                        + destinationName, Toast.LENGTH_LONG).show();
+                })
+        );
+
+        dialog.show();
     }
 
     private void addMaterial(int objectIndex, int materialIndex) {
